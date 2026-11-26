@@ -331,8 +331,57 @@ def is_due(slot: str) -> bool:
     return now() >= now().replace(hour=h, minute=m, second=0, microsecond=0)
 
 
+TEST_FILE = os.path.join(DATA, "token_test.json")
+TEST_POST = "Testing my LinkedIn agent ✅ Please ignore this post."
+
+
+def load_test() -> dict:
+    try:
+        with open(TEST_FILE) as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def save_test(test: dict) -> None:
+    os.makedirs(DATA, exist_ok=True)
+    tmp = TEST_FILE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(test, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, TEST_FILE)
+
+
+def cmd_token_test() -> int:
+    """Check the LinkedIn token without posting, then ask on Telegram before a test post."""
+    read_replies()  # skip old replies so they don't approve the test
+    urn = linkedin.person_urn()
+    log(f"LinkedIn token OK: {urn}")
+    save_test({"status": "pending", "asked_at": now().isoformat()})
+    send_telegram("Token lag gaya, test karun?\n\n👉 Reply YES ya NO")
+    return 0
+
+
+def handle_test_reply(test: dict, word: str) -> None:
+    if word in ("YES", "Y", "HAAN"):
+        try:
+            url = linkedin.post_text(TEST_POST)
+            test.update(status="posted", url=url, posted_at=now().isoformat())
+            send_telegram(f"✅ Test post LinkedIn pe live hai:\n{url}\n\nDekh lo, chaho to LinkedIn se delete kar dena.")
+        except Exception as e:
+            test.update(status="failed", error=str(e))
+            send_telegram(f"⚠️ Test post nahi hua:\n{str(e)[:1000]}")
+    else:
+        test["status"] = "rejected"
+        send_telegram("❌ Theek hai, test post nahi karunga.")
+    save_test(test)
+
+
 def handle_reply(state: dict, text: str) -> None:
     word = text.strip().upper().strip(".!")
+    test = load_test()
+    if test.get("status") == "pending" and word in ("YES", "Y", "HAAN", "NO", "N", "NAHI"):
+        handle_test_reply(test, word)
+        return
     today = now().strftime("%Y-%m-%d")
     pending = state.get("status") == "pending" and state.get("date") == today
 
@@ -395,12 +444,14 @@ def cmd_check(dry_run: bool) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Sunny Choby LinkedIn agent")
-    parser.add_argument("command", nargs="?", default="check", choices=["draft", "check"])
+    parser.add_argument("command", nargs="?", default="check", choices=["draft", "check", "token-test"])
     parser.add_argument("--dry-run", action="store_true", help="print instead of sending / posting")
     args = parser.parse_args()
 
     load_env_file(os.path.join(HERE, ".env"))
     try:
+        if args.command == "token-test":
+            return cmd_token_test()
         return cmd_draft(args.dry_run) if args.command == "draft" else cmd_check(args.dry_run)
     except Exception as e:
         log(f"ERROR: {e}")
