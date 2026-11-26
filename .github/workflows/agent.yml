@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       command:
-        description: "auto = normal run, token-test = ask on Telegram before a test post"
+        description: "auto = normal run, token-test = ask on Telegram before a test post, claude-check = test the Claude subscription token"
         type: choice
-        options: [auto, check, draft, token-test]
+        options: [auto, check, draft, token-test, claude-check]
         default: auto
 
 # One run at a time, so two runs never change the saved state together.
@@ -54,14 +54,19 @@ jobs:
         id: need
         run: |
           mkdir -p drafts
-          if [ "${{ inputs.command }}" = "draft" ]; then echo "claude=true" >> "$GITHUB_OUTPUT"
+          if [ "${{ inputs.command }}" = "draft" ] || [ "${{ inputs.command }}" = "claude-check" ]; then echo "claude=true" >> "$GITHUB_OUTPUT"
           else echo "claude=$(python agent.py should-draft)" >> "$GITHUB_OUTPUT"; fi
 
       - name: Install Claude Code
         if: steps.need.outputs.claude == 'true'
         run: npm install -g @anthropic-ai/claude-code
 
+      - name: Check Claude subscription token
+        if: inputs.command == 'claude-check'
+        run: env -u ANTHROPIC_API_KEY claude -p "Reply with just the word OK" --no-session-persistence
+
       - name: Run agent
+        if: inputs.command != 'claude-check'
         run: python agent.py ${{ inputs.command || 'auto' }}
 
       - name: Save state
