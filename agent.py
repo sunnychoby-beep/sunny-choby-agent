@@ -1,35 +1,38 @@
 """
-Sunny Choby LinkedIn Agent
---------------------------
+Sunny Choby LinkedIn Agent  (runs on your Claude subscription, no API key)
+-------------------------------------------------------------------------
 Every run:
-  1. Researches the top 2 export-related LinkedIn posts right now (via Claude web search).
+  1. Asks Claude Code (`claude -p`, using your logged-in Claude subscription) to
+     research the top 2 export-related LinkedIn posts right now with web search.
   2. Repackages the ideas (never copies) in Sunny Choby's style into a draft.
-       - 9 AM IST run  -> Problem post
-       - 6 PM IST run  -> Solution post
+       - 9 AM run  -> Problem post
+       - 6 PM run  -> Solution post
   3. Sends the draft to Telegram for approval (reply YES to approve).
 
 Posting to LinkedIn after YES is the next step (Step 3); this file only drafts + sends.
 
-Env vars (GitHub Secrets):
-  ANTHROPIC_API_KEY, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
-Optional:
-  SLOT = problem | solution   (otherwise picked from the current IST time)
+Needs:
+  - Claude Code installed and logged in with your Claude subscription (`claude` then /login)
+  - A .env file next to this script with TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID
 
-Run locally:
-  python agent.py --slot problem --dry-run     # prints the draft, no Telegram
+Run:
+  python3 agent.py --slot problem --dry-run     # prints the draft, no Telegram
+  python3 agent.py                              # slot picked from the time of day
 """
 
 import argparse
 import json
 import os
+import shutil
+import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
 
-import anthropic
 import requests
 
-MODEL = "claude-opus-5-5"
+HERE = os.path.dirname(os.path.abspath(__file__))
 IST = timezone(timedelta(hours=5, minutes=30))
+CLAUDE_TIMEOUT_SECONDS = 15 * 60
 
 # ---------------------------------------------------------------------------
 # Who Sunny is. Edit this block to change the voice or the offer.
@@ -87,6 +90,19 @@ PROGRAM_LINES = [
 ]
 
 
+def load_env_file(path: str) -> None:
+    """Load KEY=VALUE lines from .env into os.environ (without overriding)."""
+    if not os.path.exists(path):
+        return
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
 def build_prompt(slot: str, today: str) -> str:
     return f"""Today is {today} (India).
 
@@ -112,7 +128,7 @@ The draft MUST include these exact program details (they can be on separate line
 - Only Live Workshops, No Recorded Videos
 
 STEP 3 - OUTPUT
-Reply with ONLY one JSON object, no other text, in this shape:
+Do not create or edit any files. Reply with ONLY one JSON object, no other text, in this shape:
 {{
   "sources": [
     {{"title": "short description of source post 1", "url": "https://..."}},
@@ -124,42 +140,49 @@ Reply with ONLY one JSON object, no other text, in this shape:
 """
 
 
+def find_claude() -> str:
+    for path in (shutil.which("claude"), "/opt/homebrew/bin/claude",
+                 os.path.expanduser("~/.local/bin/claude"), "/usr/local/bin/claude"):
+        if path and os.path.exists(path):
+            return path
+    raise RuntimeError("Claude Code not found. Install it and log in with `claude` then /login.")
+
+
 def research_and_draft(slot: str) -> dict:
-    client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY
     today = datetime.now(IST).strftime("%d %B %Y")
-    messages = [{"role": "user", "content": build_prompt(slot, today)}]
-    tools = [{"type": "web_search_20260209", "name": "web_search", "max_uses": 8}]
+    cmd = [
+        find_claude(), "-p", build_prompt(slot, today),
+        "--output-format", "json",
+        "--allowedTools", "WebSearch", "WebFetch",
+        "--disallowedTools", "Bash", "Edit", "Write", "NotebookEdit",
+        "--no-session-persistence",
+    ]
+    env = os.environ.copy()
+    # Use the subscription login, never an API key, even if one is set in the shell.
+    env.pop("ANTHROPIC_API_KEY", None)
+    env.pop("CLAUDECODE", None)
 
-    response = None
-    # Web search can pause a long turn; continue it a few times if needed.
-    for _ in range(5):
-        response = client.beta.messages.create(
-            model=MODEL,
-            max_tokens=16000,
-            betas=["server-side-fallback-2026-07-01"],
-            fallbacks="default",
-            output_config={"effort": "high"},
-            tools=tools,
-            messages=messages,
-        )
-        if response.stop_reason != "pause_turn":
-            break
-        messages.append({"role": "assistant", "content": response.content})
+    proc = subprocess.run(cmd, capture_output=True, text=True, env=env, cwd=HERE,
+                          timeout=CLAUDE_TIMEOUT_SECONDS)
+    if proc.returncode != 0:
+        raise RuntimeError(f"Claude Code failed (exit {proc.returncode}):\n{proc.stderr[-1500:] or proc.stdout[-1500:]}")
 
-    if response.stop_reason == "refusal":
-        raise RuntimeError("Claude declined this request. Try again or change the prompt.")
-
-    text = "".join(b.text for b in response.content if b.type == "text")
-    return parse_json(text)
+    try:
+        result = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        raise RuntimeError(f"Unexpected Claude Code output:\n{proc.stdout[-1500:]}")
+    if result.get("is_error"):
+        raise RuntimeError(f"Claude Code reported an error: {result.get('result', '')[:1500]}")
+    return parse_json(result.get("result", ""))
 
 
 def parse_json(text: str) -> dict:
     start, end = text.find("{"), text.rfind("}")
     if start == -1 or end == -1:
-        raise ValueError(f"No JSON found in model reply:\n{text[:500]}")
+        raise ValueError(f"No JSON found in Claude's reply:\n{text[:500]}")
     data = json.loads(text[start : end + 1])
     if not data.get("draft"):
-        raise ValueError("Model reply has no 'draft'.")
+        raise ValueError("Claude's reply has no 'draft'.")
     return data
 
 
@@ -177,8 +200,10 @@ def ensure_program_lines(draft: str) -> str:
 
 
 def send_telegram(text: str) -> None:
-    token = os.environ["TELEGRAM_BOT_TOKEN"]
-    chat_id = os.environ["TELEGRAM_CHAT_ID"]
+    token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    chat_id = os.environ.get("TELEGRAM_CHAT_ID")
+    if not token or not chat_id:
+        raise RuntimeError("TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID missing. Add them to .env")
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     # Telegram limit is 4096 chars per message.
     for i in range(0, len(text), 4000):
@@ -212,7 +237,7 @@ def pick_slot(cli_slot: str | None) -> str:
     slot = (cli_slot or os.environ.get("SLOT") or "").strip().lower()
     if slot in SLOT_BRIEF:
         return slot
-    # Fallback: morning run = problem, evening run = solution.
+    # Morning run = problem, evening run = solution.
     return "problem" if datetime.now(IST).hour < 14 else "solution"
 
 
@@ -222,19 +247,17 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true", help="print the draft, do not send to Telegram")
     args = parser.parse_args()
 
+    load_env_file(os.path.join(HERE, ".env"))
     slot = pick_slot(args.slot)
-    print(f"Slot: {slot}")
-
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        print("ERROR: ANTHROPIC_API_KEY is not set.", file=sys.stderr)
-        return 1
+    print(f"[{datetime.now(IST):%Y-%m-%d %H:%M}] Slot: {slot}", flush=True)
 
     data = research_and_draft(slot)
     data["draft"] = ensure_program_lines(data["draft"])
     message = format_for_telegram(slot, data)
 
-    os.makedirs("drafts", exist_ok=True)
-    out = os.path.join("drafts", f"{datetime.now(IST).strftime('%Y-%m-%d')}_{slot}.json")
+    drafts_dir = os.path.join(HERE, "drafts")
+    os.makedirs(drafts_dir, exist_ok=True)
+    out = os.path.join(drafts_dir, f"{datetime.now(IST).strftime('%Y-%m-%d')}_{slot}.json")
     with open(out, "w", encoding="utf-8") as f:
         json.dump({"slot": slot, **data}, f, ensure_ascii=False, indent=2)
     print(f"Saved {out}")
