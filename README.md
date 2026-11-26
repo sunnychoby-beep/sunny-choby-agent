@@ -8,75 +8,77 @@ Profile: https://www.linkedin.com/in/sunny-choby-184555452
 
 ## Runs on your Claude subscription. No API key.
 
-The agent uses **Claude Code** (`claude -p`) with your existing Claude subscription login.
-There is no `ANTHROPIC_API_KEY` anywhere, and the code removes it even if one is set in your shell.
-It runs on **your Mac** (or any computer or cloud machine where Claude Code is logged in).
+Drafts are written by **Claude Code** (`claude -p`) using your Claude subscription login.
+There is no `ANTHROPIC_API_KEY`; the code removes it even if one is set in your shell.
+Everything runs on **your Mac**.
 
-## What it does
+## Daily flow
 
-| Time (IST) | Post | Type |
-|---|---|---|
-| 9:00 AM | Post 1 | **Problem** post |
-| 6:00 PM | Post 2 | **Solution** post |
+| Time (IST) | What happens |
+|---|---|
+| 8:30 AM | Claude Code finds the top 2 export posts, writes **2 drafts** (Problem + Solution) in Sunny's style, sends them to Telegram: *"Ye 2 draft ready hain, post kar dun? YES / NO"* |
+| You reply | **YES** = approve both. **NO** = nothing posts today. |
+| 9:00 AM | Post 1 (Problem) goes live on LinkedIn (or right after your YES, if later) |
+| 6:00 PM | Post 2 (Solution) goes live on LinkedIn |
 
-Each run:
-1. **Research:** Claude Code web search finds the top 2 export-related LinkedIn posts right now.
-2. **Repackage:** takes only the core idea, never copies, and writes a fresh draft in Sunny Choby's style. The program details are always included.
-3. **Approval:** sends the draft to Telegram with the source links. You reply **YES** to approve.
-
-> Posting to LinkedIn after YES is Step 3 (not built yet).
+- **Nothing is ever posted without your YES.**
+- Telegram tells you when each post is live, with the link.
+- A YES only counts for that day's drafts. Replies from any other Telegram chat are ignored.
 
 ## Files
 
 | File | Purpose |
 |---|---|
-| `agent.py` | Research + draft through Claude Code, send to Telegram |
+| `agent.py` | `draft`: research + 2 drafts + Telegram question. `check`: read YES/NO, post on time |
+| `linkedin.py` | Posts text to LinkedIn (Posts API) |
 | `run.sh` | Runs the agent once (sets up Python on first run, writes `logs/`) |
-| `schedule/install.sh` | Puts the 9 AM / 6 PM schedule on your Mac |
-| `schedule/uninstall.sh` | Removes the schedule |
-| `.env.example` | Template for your Telegram details |
-| `requirements.txt` | `requests` |
+| `schedule/install.sh` | Turns on the Mac schedule (8:30 AM draft, check every 5 min) |
+| `schedule/uninstall.sh` | Turns it off |
+| `.env.example` | Template for your private settings |
 
 ## Setup (one time)
 
 ### 1. Claude Code login
-Claude Code must be installed and logged in with your Claude subscription:
 ```bash
 claude
 ```
-Inside it, type `/login` and pick your Claude subscription account (not "API key").
+Type `/login` and pick your Claude subscription account (not "API key").
 
 ### 2. Telegram bot
-1. In Telegram, open **@BotFather** → `/newbot` → follow the steps → copy the **bot token**.
-2. Open your new bot, press **Start**, send `hi`.
-3. Open `https://api.telegram.org/bot<YOUR_TOKEN>/getUpdates` and copy the number after `"chat":{"id":`. That's your **chat ID**.
+1. **@BotFather** → `/newbot` → copy the full token (`123456789:AA...`).
+2. Open your bot, press **Start**, send `hi`.
+3. Get your chat ID from `https://api.telegram.org/bot<TOKEN>/getUpdates` (`"chat":{"id": ...}`).
 
-### 3. Create `.env`
-Copy `.env.example` to `.env` in this folder and fill it in:
+### 3. LinkedIn access token
+1. Go to https://www.linkedin.com/developers/apps → **Create app**.
+   LinkedIn requires a **LinkedIn Company Page** to link the app to.
+2. In the app, **Products** tab → request **Share on LinkedIn** and **Sign In with LinkedIn using OpenID Connect**.
+3. **Auth** tab → add redirect URL `https://www.linkedin.com/developers/tools/oauth/redirect`.
+4. Open https://www.linkedin.com/developers/tools/oauth/token-generator → pick your app →
+   tick `openid`, `profile`, `w_member_social` → **Request access token** → sign in → copy the token.
+5. The token lasts **60 days**. When it expires, Telegram warns you; repeat step 4.
+
+### 4. `.env`
+Copy `.env.example` to `.env` and fill in:
 ```
-TELEGRAM_BOT_TOKEN=123456789:ABC...
+TELEGRAM_BOT_TOKEN=123456789:AA...
 TELEGRAM_CHAT_ID=987654321
+LINKEDIN_ACCESS_TOKEN=AQV...
 ```
 ⚠️ This repo is **public**. `.env` is in `.gitignore`. Never commit it.
 
-### 4. Test
+### 5. Test, then turn on the schedule
 ```bash
-./run.sh --slot problem --dry-run
+.venv/bin/python agent.py draft --dry-run   # prints 2 drafts, sends nothing
+./schedule/install.sh                        # 8:30 AM draft + checks every 5 min
 ```
-Check `logs/` for the draft. Without `--dry-run` it is also sent to Telegram.
 
-### 5. Turn on the schedule
-```bash
-./schedule/install.sh
-```
-Runs every day at 9:00 AM and 6:00 PM (Mac time, must be IST).
-If the Mac is asleep at that time, the run happens as soon as it wakes up.
-
-## Change the style or offer
-Edit `PROFILE`, `STYLE` and `SLOT_BRIEF` at the top of `agent.py`.
+## Change the style, offer or times
+- Voice and offer: `PROFILE`, `STYLE` in `agent.py`
+- Post times: `POST_TIMES` in `agent.py`; draft time: `schedule/draft.plist`, then run `./schedule/install.sh` again
 
 ## Notes
-- Each run uses your Claude subscription's usage limits (2 runs a day with web search).
-- The Mac needs to be on (asleep is fine, shut down is not) for the schedule to run.
-- LinkedIn posts are found through public web search, not by scraping LinkedIn.
+- Each draft run uses your Claude subscription's usage limits (1 run a day with web search).
+- The Mac must be on (asleep is OK, jobs run on wake; shut down is not).
+- LinkedIn posts are found through public web search, not by scraping LinkedIn. Source links are sent to you on Telegram so you can check nothing was copied.
 - Honesty rules are built in: no guaranteed orders, no fake testimonials, no copied lines.

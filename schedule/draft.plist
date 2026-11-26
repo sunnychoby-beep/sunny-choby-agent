@@ -3,18 +3,16 @@
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.sunnychoby.linkedin-agent</string>
+  <string>com.sunnychoby.linkedin-agent.draft</string>
   <key>ProgramArguments</key>
   <array>
     <string>/bin/bash</string>
     <string>__AGENT_DIR__/run.sh</string>
+    <string>draft</string>
   </array>
-  <!-- 9:00 AM = Post 1 (Problem), 6:00 PM = Post 2 (Solution). Mac time zone must be IST. -->
+  <!-- 8:30 AM: make both drafts and ask on Telegram. Mac time zone must be IST. -->
   <key>StartCalendarInterval</key>
-  <array>
-    <dict><key>Hour</key><integer>9</integer><key>Minute</key><integer>0</integer></dict>
-    <dict><key>Hour</key><integer>18</integer><key>Minute</key><integer>0</integer></dict>
-  </array>
+  <dict><key>Hour</key><integer>8</integer><key>Minute</key><integer>30</integer></dict>
   <key>StandardErrorPath</key>
   <string>__AGENT_DIR__/logs/launchd.err</string>
 </dict>

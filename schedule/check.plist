@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.sunnychoby.linkedin-agent.check</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>__AGENT_DIR__/run.sh</string>
+    <string>check</string>
+  </array>
+  <!-- Every 5 minutes: read YES / NO, post to LinkedIn at 9 AM and 6 PM. -->
+  <key>StartInterval</key>
+  <integer>300</integer>
+  <key>StandardErrorPath</key>
+  <string>__AGENT_DIR__/logs/launchd.err</string>
+</dict>
+</plist>

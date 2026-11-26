@@ -1,5 +1,5 @@
 #!/bin/bash
-# Runs the agent once. Called by the Mac schedule at 9 AM and 6 PM.
+# Runs the agent once: ./run.sh draft  or  ./run.sh check
 # Uses your Claude Code subscription login. No API key.
 cd "$(dirname "$0")" || exit 1
 export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:/usr/bin:/bin"
