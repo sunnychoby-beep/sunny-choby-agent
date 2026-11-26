@@ -1,26 +1,26 @@
 """
-Sunny Choby LinkedIn Agent  (runs on your Claude subscription, no API key)
--------------------------------------------------------------------------
-Two commands:
+Sunny Choby LinkedIn Agent  (runs on GitHub Actions with your Claude subscription, no API key)
+-----------------------------------------------------------------------------------------------
+GitHub Actions runs `python agent.py auto` every 10 minutes. Your PC can be off.
 
-  python3 agent.py draft      (Mac runs this at 8:30 AM)
-      1. Claude Code (`claude -p`, your subscription login) researches the top 2
-         export-related LinkedIn posts right now with web search.
+  8:30 AM IST (first run after it)
+      1. Claude Code (`claude -p`, your subscription via CLAUDE_CODE_OAUTH_TOKEN)
+         researches the top 2 export-related LinkedIn posts with web search.
       2. Repackages the ideas (never copies) in Sunny Choby's style into 2 drafts:
          Post 1 = Problem (goes out 9 AM), Post 2 = Solution (goes out 6 PM).
       3. Sends both to Telegram: "Ye 2 draft ready hain, post kar dun? YES / NO"
 
-  python3 agent.py check      (Mac runs this every 5 minutes)
+  Every run
       - Reads your Telegram reply. YES = approve both, NO = skip today.
       - After YES: Post 1 goes to LinkedIn at 9 AM (or right away if later),
         Post 2 at 6 PM. Nothing is ever posted without your YES.
 
-Add --dry-run to either command to print instead of sending / posting.
+Other commands: `draft`, `check`, `token-test`, `should-draft`. Add --dry-run to
+draft/check to print instead of sending / posting.
 
-Needs:
-  - Claude Code installed and logged in with your Claude subscription
-  - .env next to this script with TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID,
-    LINKEDIN_ACCESS_TOKEN
+Settings come from environment variables (GitHub Secrets), or from a local .env
+for manual testing: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, LINKEDIN_ACCESS_TOKEN,
+CLAUDE_CODE_OAUTH_TOKEN.
 """
 
 import argparse
@@ -39,11 +39,14 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(HERE, "drafts")
 STATE_FILE = os.path.join(DATA, "state.json")
 OFFSET_FILE = os.path.join(DATA, "telegram_offset.txt")
+ATTEMPT_FILE = os.path.join(DATA, "last_draft_attempt.txt")
 IST = timezone(timedelta(hours=5, minutes=30))
 CLAUDE_TIMEOUT_SECONDS = 15 * 60
 
 # When each approved post goes live (IST, 24h clock).
 POST_TIMES = {"problem": (9, 0), "solution": (18, 0)}
+# Drafts are made by the first run at or after DRAFT_TIME, and not after DRAFT_LAST.
+DRAFT_TIME, DRAFT_LAST = (8, 30), (18, 0)
 LABELS = {"problem": "POST 1 - 9 AM - PROBLEM", "solution": "POST 2 - 6 PM - SOLUTION"}
 
 # ---------------------------------------------------------------------------
@@ -442,14 +445,49 @@ def cmd_check(dry_run: bool) -> int:
     return 0
 
 
+def should_draft() -> bool:
+    """True when today's drafts have not been made or tried yet and it is drafting time."""
+    t, today = now(), now().strftime("%Y-%m-%d")
+    start = t.replace(hour=DRAFT_TIME[0], minute=DRAFT_TIME[1], second=0, microsecond=0)
+    last = t.replace(hour=DRAFT_LAST[0], minute=DRAFT_LAST[1], second=0, microsecond=0)
+    if not (start <= t < last) or load_state().get("date") == today:
+        return False
+    try:
+        with open(ATTEMPT_FILE) as f:
+            return f.read().strip() != today
+    except FileNotFoundError:
+        return True
+
+
+def cmd_auto() -> int:
+    if should_draft():
+        os.makedirs(DATA, exist_ok=True)
+        with open(ATTEMPT_FILE, "w") as f:  # one try a day, so a failure can't loop
+            f.write(now().strftime("%Y-%m-%d"))
+        try:
+            cmd_draft(False)
+        except Exception as e:
+            log(f"ERROR while drafting: {e}")
+            try:
+                send_telegram(f"⚠️ Aaj ke drafts nahi ban paaye:\n{str(e)[:1000]}")
+            except Exception:
+                pass
+    return cmd_check(False)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Sunny Choby LinkedIn agent")
-    parser.add_argument("command", nargs="?", default="check", choices=["draft", "check", "token-test"])
+    parser.add_argument("command", nargs="?", default="auto", choices=["auto", "draft", "check", "token-test", "should-draft"])
     parser.add_argument("--dry-run", action="store_true", help="print instead of sending / posting")
     args = parser.parse_args()
 
     load_env_file(os.path.join(HERE, ".env"))
     try:
+        if args.command == "should-draft":
+            print("true" if should_draft() else "false")
+            return 0
+        if args.command == "auto":
+            return cmd_auto()
         if args.command == "token-test":
             return cmd_token_test()
         return cmd_draft(args.dry_run) if args.command == "draft" else cmd_check(args.dry_run)

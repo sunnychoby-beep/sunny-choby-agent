@@ -1,0 +1,72 @@
+name: LinkedIn agent
+
+on:
+  schedule:
+    - cron: "0 3 * * *"      # 8:30 AM IST: make today's 2 drafts and send them to Telegram
+    - cron: "*/10 * * * *"   # every 10 min: read YES / NO, post at 9 AM and 6 PM IST
+  workflow_dispatch:
+    inputs:
+      command:
+        description: "auto = normal run, token-test = ask on Telegram before a test post"
+        type: choice
+        options: [auto, check, draft, token-test]
+        default: auto
+
+# One run at a time, so two runs never change the saved state together.
+concurrency:
+  group: linkedin-agent
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      LINKEDIN_ACCESS_TOKEN: ${{ secrets.LINKEDIN_ACCESS_TOKEN }}
+      # Claude subscription token from `claude setup-token`. Not an API key.
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      TZ: Asia/Kolkata
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      # Today's drafts, approval status and Telegram position live in drafts/,
+      # carried from run to run with the Actions cache (not committed: the repo is public).
+      - name: Restore state
+        uses: actions/cache/restore@v4
+        with:
+          path: drafts
+          key: state-${{ github.run_id }}
+          restore-keys: state-
+
+      - name: Draft time?
+        id: need
+        run: |
+          mkdir -p drafts
+          if [ "${{ inputs.command }}" = "draft" ]; then echo "claude=true" >> "$GITHUB_OUTPUT"
+          else echo "claude=$(python agent.py should-draft)" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Install Claude Code
+        if: steps.need.outputs.claude == 'true'
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Run agent
+        run: python agent.py ${{ inputs.command || 'auto' }}
+
+      - name: Save state
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: drafts
+          key: state-${{ github.run_id }}-${{ github.run_attempt }}
