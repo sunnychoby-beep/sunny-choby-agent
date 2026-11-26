@@ -78,6 +78,7 @@ LINKEDIN_ACCESS_TOKEN=AQV...
 - Post times: `POST_TIMES` in `agent.py`; draft time: `schedule/draft.plist`, then run `./schedule/install.sh` again
 
 ## Notes
+- Keep this folder **outside** Desktop, Documents and Downloads (e.g. `~/sunny-choby-agent`). macOS blocks scheduled jobs from those folders ("Operation not permitted").
 - Each draft run uses your Claude subscription's usage limits (1 run a day with web search).
 - The Mac must be on (asleep is OK, jobs run on wake; shut down is not).
 - LinkedIn posts are found through public web search, not by scraping LinkedIn. Source links are sent to you on Telegram so you can check nothing was copied.
