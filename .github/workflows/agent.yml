@@ -3,13 +3,13 @@ name: LinkedIn agent
 on:
   schedule:
     - cron: "0 3 * * *"      # 8:30 AM IST: make today's 2 drafts and send them to Telegram
-    - cron: "*/10 * * * *"   # every 10 min: read YES / NO, post at 9 AM and 6 PM IST
+    - cron: "7,37 3-12 * * *" # backups in case GitHub skips a run (GitHub schedules are unreliable)
   workflow_dispatch:
     inputs:
       command:
         description: "auto = normal run, token-test = ask on Telegram before a test post, claude-check = test the Claude subscription token"
         type: choice
-        options: [auto, check, draft, token-test, claude-check]
+        options: [auto, watch, check, draft, token-test, claude-check]
         default: auto
 
 # One run at a time, so two runs never change the saved state together.
@@ -19,11 +19,12 @@ concurrency:
 
 permissions:
   contents: read
+  actions: write   # lets a run start the next run (see "Keep going" below)
 
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 80
     env:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -65,9 +66,21 @@ jobs:
         if: inputs.command == 'claude-check'
         run: env -u ANTHROPIC_API_KEY claude -p "Reply with just the word OK" --no-session-persistence
 
+      # auto: make drafts after 8:30 if needed, then check Telegram every 30 s for ~50 min.
       - name: Run agent
+        id: agent
         if: inputs.command != 'claude-check'
-        run: python agent.py ${{ inputs.command || 'auto' }}
+        run: |
+          python agent.py ${{ inputs.command || 'auto' }}
+          if [ "${{ inputs.command }}" = "draft" ]; then python agent.py watch; fi
+
+      # GitHub often starts scheduled runs late or skips them. So while today's drafts are
+      # waiting for YES, or an approved post is waiting for 9 AM / 6 PM, each run starts the next.
+      - name: Keep going
+        if: steps.agent.outputs.active == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run agent.yml -R "$GITHUB_REPOSITORY" -f command=auto
 
       - name: Save state
         if: always()

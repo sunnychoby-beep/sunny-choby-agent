@@ -24,14 +24,16 @@ through a `CLAUDE_CODE_OAUTH_TOKEN` (made with `claude setup-token`). There is n
 - **Nothing is ever posted without your YES.**
 - Telegram tells you when each post is live, with the link.
 - A YES only counts for that day's drafts. Replies from any other Telegram chat are ignored.
-- The workflow runs every 10 minutes, so a reply or a post can take up to ~10-15 minutes
-  (GitHub sometimes starts scheduled runs late).
+- GitHub's schedule is unreliable (runs can start late or be skipped), so once a day has
+  started, the agent keeps itself running: it checks Telegram every 30 seconds until your
+  posts are done, then stops. Backup runs at :07 and :37 each hour (8:37 AM - 6:07 PM IST)
+  restart it if needed.
 
 ## Files
 
 | File | Purpose |
 |---|---|
-| `.github/workflows/agent.yml` | GitHub Actions: 8:30 AM IST draft + run every 10 min |
+| `.github/workflows/agent.yml` | GitHub Actions: 8:30 AM IST draft, then keeps checking Telegram until the day's posts are done |
 | `agent.py` | `auto` (default): draft at 8:30, read YES/NO, post on time. Also `draft`, `check`, `token-test` |
 | `linkedin.py` | Posts text to LinkedIn (Posts API) |
 | `.env.example` | Template for local testing only |

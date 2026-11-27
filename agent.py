@@ -29,6 +29,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 
 import requests
@@ -459,6 +460,38 @@ def should_draft() -> bool:
         return True
 
 
+WATCH_SECONDS = 50 * 60   # one GitHub run watches this long, then starts the next run
+POLL_SECONDS = 30
+
+
+def day_active() -> bool:
+    """True while today's drafts still need a reply or an approved post is still waiting."""
+    state, today = load_state(), now().strftime("%Y-%m-%d")
+    if state.get("date") != today:
+        return False
+    if state.get("status") == "pending":
+        return True
+    return state.get("status") == "approved" and any(
+        p.get("status") == "waiting" for p in state.get("posts", {}).values())
+
+
+def cmd_watch() -> int:
+    """Check Telegram every 30 s while the day is active. Prints active=true/false at the end."""
+    start = time.time()
+    while True:
+        cmd_check(False)
+        if not day_active() or time.time() - start > WATCH_SECONDS:
+            break
+        time.sleep(POLL_SECONDS)
+    active = day_active()
+    log(f"Watch finished. Still active: {active}")
+    out = os.environ.get("GITHUB_OUTPUT")
+    if out:
+        with open(out, "a") as f:
+            f.write(f"active={'true' if active else 'false'}\n")
+    return 0
+
+
 def cmd_auto() -> int:
     if should_draft():
         os.makedirs(DATA, exist_ok=True)
@@ -472,12 +505,12 @@ def cmd_auto() -> int:
                 send_telegram(f"⚠️ Aaj ke drafts nahi ban paaye:\n{str(e)[:1000]}")
             except Exception:
                 pass
-    return cmd_check(False)
+    return cmd_watch()
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Sunny Choby LinkedIn agent")
-    parser.add_argument("command", nargs="?", default="auto", choices=["auto", "draft", "check", "token-test", "should-draft"])
+    parser.add_argument("command", nargs="?", default="auto", choices=["auto", "draft", "check", "watch", "token-test", "should-draft"])
     parser.add_argument("--dry-run", action="store_true", help="print instead of sending / posting")
     args = parser.parse_args()
 
@@ -486,6 +519,8 @@ def main() -> int:
         if args.command == "should-draft":
             print("true" if should_draft() else "false")
             return 0
+        if args.command == "watch":
+            return cmd_watch()
         if args.command == "auto":
             return cmd_auto()
         if args.command == "token-test":
