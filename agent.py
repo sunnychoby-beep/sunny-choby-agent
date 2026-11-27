@@ -66,7 +66,8 @@ PROFILE = {
 STYLE = """
 Sunny Choby's writing style on LinkedIn:
 - Talks like a mentor sitting across the table from a new exporter: direct, warm, practical.
-- Simple English with light Hinglish words where natural (e.g. "yaar", "seedhi baat", "pehla order").
+- LANGUAGE: simple, clear English only. No Hindi or Hinglish words at all (no "yaar",
+  "seedhi baat", "pehla order"). Short, everyday words a new exporter anywhere can follow.
 - Short lines. One idea per line. Lots of white space. No long paragraphs.
 - Opens with a sharp hook line that stops the scroll.
 - Uses 1 real-feeling example or number, never fake case studies or fake client names.
@@ -188,7 +189,7 @@ last 30 days and from linkedin.com. Pick the 2 best ones.
 
 STEP 2 - REPACKAGE INTO 2 DRAFTS
 POST 1 (goes out at 9 AM): PROBLEM post. Pick the strongest pain point / mistake new exporters
-face from the research. Make the reader feel 'yeh toh mere saath ho raha hai'. Agitate the
+face from the research. Make the reader feel 'this is exactly what is happening to me'. Agitate the
 problem, hint that there is a structured way out, and mention the program briefly near the end.
 
 POST 2 (goes out at 6 PM): SOLUTION post. Give a clear, practical step-by-step way (3-5 steps)
@@ -199,6 +200,8 @@ The 2 posts must not repeat the same hook or the same example.
 
 {STYLE}
 {HONESTY}
+
+Write both drafts entirely in simple English.
 
 Each draft MUST include these exact program details (they can be on separate lines):
 - 6-Month Hand-Hold
