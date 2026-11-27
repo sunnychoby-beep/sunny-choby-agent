@@ -16,10 +16,10 @@ through a `CLAUDE_CODE_OAUTH_TOKEN` (made with `claude setup-token`). There is n
 
 | Time (IST) | What happens |
 |---|---|
-| 8:30 AM | Claude Code finds the top 2 export posts, writes **2 drafts** (Problem + Solution) in Sunny's style, sends them to Telegram: *"Ye 2 draft ready hain, post kar dun? YES / NO"* |
+| 8:30 AM | Claude Code finds the top 2 export posts (text or image), writes **2 drafts in simple English** with a **branded image card** each, sends them to Telegram: *"Ye 2 draft ready hain, post kar dun? YES / NO"* |
 | You reply | **YES** = approve both. **NO** = nothing posts today. |
-| 9:00 AM | Post 1 (Problem) goes live on LinkedIn (or right after your YES, if later) |
-| 6:00 PM | Post 2 (Solution) goes live on LinkedIn |
+| 9:00 AM | Post 1: **photo post** (Problem) goes live on LinkedIn (or right after your YES, if later) |
+| 6:00 PM | Post 2: **article-style long post** (Solution) with a cover card goes live on LinkedIn |
 
 - **Nothing is ever posted without your YES.**
 - Telegram tells you when each post is live, with the link.
@@ -35,7 +35,8 @@ through a `CLAUDE_CODE_OAUTH_TOKEN` (made with `claude setup-token`). There is n
 |---|---|
 | `.github/workflows/agent.yml` | GitHub Actions: 8:30 AM IST draft, then keeps checking Telegram until the day's posts are done |
 | `agent.py` | `auto` (default): draft at 8:30, read YES/NO, post on time. Also `draft`, `check`, `token-test` |
-| `linkedin.py` | Posts text to LinkedIn (Posts API) |
+| `linkedin.py` | Posts to LinkedIn (Posts API + image upload) |
+| `card.py` | Makes the Sunny Choby branded image card (1080x1350) |
 | `.env.example` | Template for local testing only |
 
 ## Setup (one time)
@@ -62,8 +63,14 @@ Repo → **Settings → Secrets and variables → Actions → New repository sec
 Repo → **Actions → LinkedIn agent → Run workflow** → `token-test`.
 Telegram asks *"Token lag gaya, test karun?"*; a test post goes out only after your YES.
 
+## Content rules
+- Simple English only on LinkedIn (Telegram messages to you stay in Hinglish).
+- The name is always **Sunny Choby** (C-H-O-B-Y); other spellings are corrected automatically.
+- Images are original branded cards. Only the idea of a popular post is used, never its image.
+- LinkedIn's real "Write article" feature has no public API, so Post 2 is an article-style long post.
+
 ## Change the style, offer or times
-- Voice and offer: `PROFILE`, `STYLE` in `agent.py`
+- Voice and offer: `PROFILE`, `STYLE` in `agent.py`; card colours and footer: `card.py`
 - Post times: `POST_TIMES` in `agent.py`; draft time: `DRAFT_TIME` in `agent.py`
 
 ## Notes

@@ -26,6 +26,7 @@ CLAUDE_CODE_OAUTH_TOKEN.
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -35,6 +36,7 @@ from datetime import datetime, timedelta, timezone
 import requests
 
 import linkedin
+from card import make_card
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(HERE, "drafts")
@@ -48,7 +50,10 @@ CLAUDE_TIMEOUT_SECONDS = 15 * 60
 POST_TIMES = {"problem": (9, 0), "solution": (18, 0)}
 # Drafts are made by the first run at or after DRAFT_TIME, and not after DRAFT_LAST.
 DRAFT_TIME, DRAFT_LAST = (8, 30), (18, 0)
-LABELS = {"problem": "POST 1 - 9 AM - PROBLEM", "solution": "POST 2 - 6 PM - SOLUTION"}
+LABELS = {"problem": "POST 1 - 9 AM - PHOTO POST (PROBLEM)",
+          "solution": "POST 2 - 6 PM - ARTICLE (SOLUTION)"}
+SHORT = {"problem": "Post 1 (Photo post)", "solution": "Post 2 (Article)"}
+MAX_CHARS = 2900  # LinkedIn allows 3000 characters per post
 
 # ---------------------------------------------------------------------------
 # Who Sunny is. Edit this block to change the voice or the offer.
@@ -72,7 +77,6 @@ Sunny Choby's writing style on LinkedIn:
 - Opens with a sharp hook line that stops the scroll.
 - Uses 1 real-feeling example or number, never fake case studies or fake client names.
 - 3-6 relevant hashtags at the end (#Export #ExportBusiness #FirstExportOrder etc.).
-- Length: 120-220 words.
 - Ends with a clear call to action, e.g. "Comment EXPORT" or "DM me 'FIRST ORDER'".
 """
 
@@ -151,6 +155,15 @@ def send_telegram(text: str) -> None:
             text=text[i : i + 4000], disable_web_page_preview=True)
 
 
+def send_photo(path: str, caption: str = "") -> None:
+    token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    with open(path, "rb") as f:
+        r = requests.post(f"https://api.telegram.org/bot{token}/sendPhoto",
+                          data={"chat_id": os.environ["TELEGRAM_CHAT_ID"], "caption": caption[:1000]},
+                          files={"photo": f}, timeout=120)
+    r.raise_for_status()
+
+
 def read_replies() -> list[str]:
     """New text messages from Sunny's chat since the last check."""
     offset = 0
@@ -182,19 +195,29 @@ Business: {PROFILE['business']}.
 Program: {PROFILE['program']}
 
 STEP 1 - RESEARCH
-Use web search to find the top 2 export-related LinkedIn posts that are getting strong
-engagement recently (topics like starting an export business, first export order, finding
+Use web search to find the top 2 export-related LinkedIn posts (text, image, infographic or
+carousel posts) that are getting strong engagement recently (topics like starting an export business, first export order, finding
 buyers, IEC, documentation, pricing, payments, export mistakes). Prefer posts from the
 last 30 days and from linkedin.com. Pick the 2 best ones.
 
-STEP 2 - REPACKAGE INTO 2 DRAFTS
-POST 1 (goes out at 9 AM): PROBLEM post. Pick the strongest pain point / mistake new exporters
-face from the research. Make the reader feel 'this is exactly what is happening to me'. Agitate the
-problem, hint that there is a structured way out, and mention the program briefly near the end.
+STEP 2 - REPACKAGE INTO 2 DRAFTS (each one goes out with an image card)
+POST 1 (goes out at 9 AM): PHOTO POST about a PROBLEM. Pick the strongest pain point / mistake
+new exporters face from the research. Make the reader feel 'this is exactly what is happening
+to me'. Agitate the problem, hint that there is a structured way out, and mention the program
+briefly near the end. Length: 120-220 words.
 
-POST 2 (goes out at 6 PM): SOLUTION post. Give a clear, practical step-by-step way (3-5 steps)
-to solve a problem new exporters face (from the research). Give real value first, then
-position the program as the guided way to do it.
+POST 2 (goes out at 6 PM): ARTICLE-STYLE long post about a SOLUTION. First line is a clear
+article title. Then a short intro, then 5-7 numbered steps or points, each with a 1-2 line
+explanation, then a short conclusion and the program. Real, practical value first.
+Length: 1,800-2,600 characters in total (hard limit: LinkedIn allows 3,000).
+
+IMAGE CARD for each post: an original, branded design card (we never copy anyone's image).
+If a source was an image/infographic post, take only its visual idea and make it clearer.
+For each post give: "tag" (2-3 words, e.g. "EXPORT MISTAKE", "STEP-BY-STEP"),
+"headline" (max 10 words, punchy) and "points" (3-4 short points, max 8 words each).
+
+NAME: the name is always spelled exactly "Sunny Choby" (C-H-O-B-Y). Never "Chaubey",
+"Choubey", "Chobey" or any other spelling.
 
 The 2 posts must not repeat the same hook or the same example.
 
@@ -215,8 +238,10 @@ Do not create or edit any files. Reply with ONLY one JSON object, no other text,
     {{"title": "short description of source post 1", "url": "https://..."}},
     {{"title": "short description of source post 2", "url": "https://..."}}
   ],
-  "problem": {{"angle": "one line: idea taken and how you changed it", "draft": "full post text"}},
-  "solution": {{"angle": "one line: idea taken and how you changed it", "draft": "full post text"}}
+  "problem": {{"angle": "one line: idea taken and how you changed it", "draft": "full post text",
+              "card": {{"tag": "...", "headline": "...", "points": ["...", "...", "..."]}}}},
+  "solution": {{"angle": "one line: idea taken and how you changed it", "draft": "full article text",
+               "card": {{"tag": "...", "headline": "...", "points": ["...", "...", "..."]}}}}
 }}
 """
 
@@ -278,6 +303,23 @@ def ensure_program_lines(draft: str) -> str:
     )
 
 
+_WRONG_NAME = re.compile(r"\b(Chaubey|Choubey|Chobey|Chaube|Choubay|Chaubay)\b", re.I)
+
+
+def fix_name(text: str) -> str:
+    """Sunny's surname is always spelled Choby."""
+    return _WRONG_NAME.sub("Choby", text)
+
+
+def fit_length(draft: str) -> str:
+    """Keep a post under LinkedIn's limit, cutting at a paragraph break if needed."""
+    if len(draft) <= MAX_CHARS:
+        return draft
+    room = MAX_CHARS - 200  # space for the program lines
+    cut = draft[:room].rfind("\n\n")
+    return ensure_program_lines(draft[: cut if cut > 0 else room].rstrip())
+
+
 def format_draft(slot: str, post: dict) -> str:
     return (
         f"📝 {LABELS[slot]}\n"
@@ -295,8 +337,8 @@ def format_question(data: dict) -> str:
     )
     return (
         "✅ Ye 2 draft ready hain, post kar dun?\n\n"
-        "Post 1 (Problem) → 9:00 AM\n"
-        "Post 2 (Solution) → 6:00 PM\n\n"
+        "Post 1 (Photo post) → 9:00 AM\n"
+        "Post 2 (Article) → 6:00 PM\n\n"
         f"Idea yahan se liya (copy nahi kiya):\n{sources}\n\n"
         "👉 Reply YES ya NO"
     )
@@ -307,9 +349,15 @@ def cmd_draft(dry_run: bool) -> int:
     data = research_and_draft()
     posts = {}
     for slot in ("problem", "solution"):
-        draft = ensure_program_lines(data[slot]["draft"])
-        posts[slot] = {"draft": draft, "angle": data[slot].get("angle", ""),
-                       "status": "waiting", "url": None, "error": None}
+        draft = fit_length(ensure_program_lines(fix_name(data[slot]["draft"])))
+        card = data[slot].get("card") or {}
+        card = {"tag": fix_name(str(card.get("tag", ""))),
+                "headline": fix_name(str(card.get("headline", ""))),
+                "points": [fix_name(str(p)) for p in card.get("points", [])]}
+        image = os.path.join(DATA, f"{now():%Y-%m-%d}_{slot}.png")
+        make_card(card, image)
+        posts[slot] = {"draft": draft, "angle": data[slot].get("angle", ""), "card": card,
+                       "image": image, "status": "waiting", "url": None, "error": None}
 
     state = {"date": now().strftime("%Y-%m-%d"), "status": "pending",
              "created_at": now().isoformat(), "sources": data.get("sources", []), "posts": posts}
@@ -324,6 +372,7 @@ def cmd_draft(dry_run: bool) -> int:
     read_replies()
     save_state(state)
     for slot in ("problem", "solution"):
+        send_photo(posts[slot]["image"], f"🖼 {SHORT[slot]} ki photo")
         send_telegram(format_draft(slot, posts[slot]))
     send_telegram(format_question(state))
     log("2 drafts sent to Telegram. Waiting for YES / NO.")
@@ -356,6 +405,15 @@ def save_test(test: dict) -> None:
     with open(tmp, "w") as f:
         json.dump(test, f, ensure_ascii=False, indent=2)
     os.replace(tmp, TEST_FILE)
+
+
+def cmd_image_check() -> int:
+    """Upload a sample card to LinkedIn without posting it (checks image permission)."""
+    path = make_card({"tag": "Test", "headline": "Image upload check", "points": ["Not posted"]},
+                     os.path.join(DATA, "image_check.png"))
+    urn = linkedin.upload_image(path, linkedin.person_urn())
+    log(f"LinkedIn image upload OK (not posted): {urn.split(':')[0]}:li:image:…")
+    return 0
 
 
 def cmd_token_test() -> int:
@@ -404,7 +462,7 @@ def handle_reply(state: dict, text: str) -> None:
         state["approved_at"] = now().isoformat()
         p1 = "abhi jaa raha hai" if is_due("problem") else "9:00 AM pe jaayega"
         p2 = "abhi jaa raha hai" if is_due("solution") else "6:00 PM pe jaayega"
-        send_telegram(f"👍 Approved!\nPost 1 (Problem) {p1}.\nPost 2 (Solution) {p2}.")
+        send_telegram(f"👍 Approved!\nPost 1 (Photo post) {p1}.\nPost 2 (Article) {p2}.")
     else:
         state["status"] = "rejected"
         send_telegram("❌ Theek hai, aaj ke dono drafts post nahi honge.")
@@ -418,12 +476,17 @@ def post_due(state: dict, dry_run: bool) -> None:
         post = state["posts"][slot]
         if post["status"] != "waiting" or not is_due(slot):
             continue
-        label = "Post 1 (Problem)" if slot == "problem" else "Post 2 (Solution)"
+        label = SHORT[slot]
         if dry_run:
             log(f"[dry-run] Would post {label} to LinkedIn now.")
             continue
         try:
-            post["url"] = linkedin.post_text(post["draft"])
+            image = post.get("image")
+            if image and os.path.exists(image):
+                post["url"] = linkedin.post_with_image(post["draft"], image,
+                                                       post.get("card", {}).get("headline", ""))
+            else:
+                post["url"] = linkedin.post_text(post["draft"])
             post["status"] = "posted"
             post["posted_at"] = now().isoformat()
             send_telegram(f"🚀 {label} LinkedIn pe live hai:\n{post['url']}")
@@ -513,7 +576,7 @@ def cmd_auto() -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Sunny Choby LinkedIn agent")
-    parser.add_argument("command", nargs="?", default="auto", choices=["auto", "draft", "check", "watch", "token-test", "should-draft"])
+    parser.add_argument("command", nargs="?", default="auto", choices=["auto", "draft", "check", "watch", "token-test", "image-check", "should-draft"])
     parser.add_argument("--dry-run", action="store_true", help="print instead of sending / posting")
     args = parser.parse_args()
 
@@ -522,6 +585,8 @@ def main() -> int:
         if args.command == "should-draft":
             print("true" if should_draft() else "false")
             return 0
+        if args.command == "image-check":
+            return cmd_image_check()
         if args.command == "watch":
             return cmd_watch()
         if args.command == "auto":

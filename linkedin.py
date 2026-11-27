@@ -10,6 +10,7 @@ Optional:
 
 import os
 import re
+import time
 from datetime import date
 
 import requests
@@ -78,10 +79,52 @@ def to_little_text(text: str) -> str:
     return "".join(out)
 
 
-def post_text(text: str) -> str:
-    """Publish a text post. Returns the public URL of the post."""
+def _headers(json_body: bool = True) -> dict:
+    h = {"Authorization": f"Bearer {_token()}", "LinkedIn-Version": _api_version(),
+         "X-Restli-Protocol-Version": "2.0.0"}
+    if json_body:
+        h["Content-Type"] = "application/json"
+    return h
+
+
+def upload_image(path: str, author: str) -> str:
+    """Upload a PNG/JPG to LinkedIn. Returns the image URN (urn:li:image:...)."""
+    r = requests.post(f"{API}/rest/images?action=initializeUpload",
+                      json={"initializeUploadRequest": {"owner": author}},
+                      headers=_headers(), timeout=30)
+    if r.status_code in (401, 403):
+        raise LinkedInAuthError(f"LinkedIn refused the image upload ({r.status_code}): {r.text[:300]}")
+    if not r.ok:
+        raise LinkedInError(f"LinkedIn image upload failed: {r.status_code} {r.text[:300]}")
+    value = r.json()["value"]
+    with open(path, "rb") as f:
+        up = requests.put(value["uploadUrl"], data=f.read(),
+                          headers={"Authorization": f"Bearer {_token()}"}, timeout=120)
+    if not up.ok:
+        raise LinkedInError(f"LinkedIn image upload failed: {up.status_code} {up.text[:300]}")
+    urn = value["image"]
+    # Wait until LinkedIn has processed the image (usually a few seconds).
+    for _ in range(15):
+        g = requests.get(f"{API}/rest/images/{requests.utils.quote(urn, safe='')}",
+                         headers=_headers(False), timeout=30)
+        if g.ok and g.json().get("status") == "AVAILABLE":
+            break
+        time.sleep(2)
+    return urn
+
+
+def post_with_image(text: str, image_path: str, alt_text: str = "") -> str:
+    """Publish a post with one image. Returns the public URL of the post."""
+    author = person_urn()
+    image = upload_image(image_path, author)
+    return post_text(text, author=author,
+                     content={"media": {"id": image, "altText": (alt_text or "Sunny Choby")[:400]}})
+
+
+def post_text(text: str, author: str = "", content: dict | None = None) -> str:
+    """Publish a text post (optionally with media content). Returns the public URL of the post."""
     body = {
-        "author": person_urn(),
+        "author": author or person_urn(),
         "commentary": to_little_text(text),
         "visibility": "PUBLIC",
         "distribution": {
@@ -92,15 +135,12 @@ def post_text(text: str) -> str:
         "lifecycleState": "PUBLISHED",
         "isReshareDisabledByAuthor": False,
     }
+    if content:
+        body["content"] = content
     r = requests.post(
         f"{API}/rest/posts",
         json=body,
-        headers={
-            "Authorization": f"Bearer {_token()}",
-            "LinkedIn-Version": _api_version(),
-            "X-Restli-Protocol-Version": "2.0.0",
-            "Content-Type": "application/json",
-        },
+        headers=_headers(),
         timeout=30,
     )
     if r.status_code in (401, 403):
