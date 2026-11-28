@@ -16,7 +16,7 @@ through a `CLAUDE_CODE_OAUTH_TOKEN` (made with `claude setup-token`). There is n
 
 | Time (IST) | What happens |
 |---|---|
-| 8:30 AM | Claude Code finds the top 2 export posts (text or image), writes **2 drafts in simple English** with a **branded image card** each, sends them to Telegram: *"Ye 2 draft ready hain, post kar dun? YES / NO"* |
+| 8:30 AM | Claude Code finds the top 2 export posts (text or image), writes **2 drafts in simple English** with a **infographic card** each, sends them to Telegram: *"Ye 2 draft ready hain, post kar dun? YES / NO"* |
 | You reply | **YES** = approve both. **NO** = nothing posts today. |
 | 9:00 AM | Post 1: **photo post** (Problem) goes live on LinkedIn (or right after your YES, if later) |
 | 6:00 PM | Post 2: **article-style long post** (Solution) with a cover card goes live on LinkedIn |
@@ -36,7 +36,7 @@ through a `CLAUDE_CODE_OAUTH_TOKEN` (made with `claude setup-token`). There is n
 | `.github/workflows/agent.yml` | GitHub Actions: 8:30 AM IST draft, then keeps checking Telegram until the day's posts are done |
 | `agent.py` | `auto` (default): draft at 8:30, read YES/NO, post on time. Also `draft`, `check`, `token-test` |
 | `linkedin.py` | Posts to LinkedIn (Posts API + image upload) |
-| `card.py` | Makes the Sunny Choby branded image card (1080x1350) |
+| `card.py` | Makes the Sunny Choby infographic card (1080x1350): grid, checklist or cost breakdown |
 | `.env.example` | Template for local testing only |
 
 ## Setup (one time)
@@ -66,7 +66,12 @@ Telegram asks *"Token lag gaya, test karun?"*; a test post goes out only after y
 ## Content rules
 - Simple English only on LinkedIn (Telegram messages to you stay in Hinglish).
 - The name is always **Sunny Choby** (C-H-O-B-Y); other spellings are corrected automatically.
-- Images are original branded cards. Only the idea of a popular post is used, never its image.
+- Value first: one concrete export topic per post (hook with a number, breakdown, one practical rule, save/share ending).
+- The paid program is mentioned **only on Saturday** (`PITCH_WEEKDAY` in `agent.py`), at the end of the article. Other days have no selling.
+- Topics from the last 30 days are remembered (`drafts/topics.json`) so they are not repeated.
+- Images are original infographics with 3 templates: `grid` (numbered boxes), `checklist` and `breakdown` (cost bars). Run `python card.py` to see samples.
+- Put Sunny's photo at `assets/photo.jpg` to show it in the card footer (otherwise an "SC" badge is used). The repo is public, so the photo is public too.
+- Only the idea of a popular post is used, never its text or image.
 - LinkedIn's real "Write article" feature has no public API, so Post 2 is an article-style long post.
 
 ## Change the style, offer or times

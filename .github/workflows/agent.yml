@@ -43,7 +43,7 @@ jobs:
       - run: pip install -r requirements.txt
 
       - name: Fonts for the image card
-        run: fc-list | grep -qi DejaVuSans-Bold || (sudo apt-get update -qq && sudo apt-get install -y -qq fonts-dejavu-core)
+        run: fc-list | grep -qi LiberationSansNarrow-Bold || (sudo apt-get update -qq && sudo apt-get install -y -qq fonts-liberation fonts-dejavu-core)
 
       # Today's drafts, approval status and Telegram position live in drafts/,
       # carried from run to run with the Actions cache (not committed: the repo is public).

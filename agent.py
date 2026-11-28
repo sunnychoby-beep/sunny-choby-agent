@@ -69,15 +69,22 @@ PROFILE = {
 }
 
 STYLE = """
-Sunny Choby's writing style on LinkedIn:
-- Talks like a mentor sitting across the table from a new exporter: direct, warm, practical.
-- LANGUAGE: simple, clear English only. No Hindi or Hinglish words at all (no "yaar",
-  "seedhi baat", "pehla order"). Short, everyday words a new exporter anywhere can follow.
-- Short lines. One idea per line. Lots of white space. No long paragraphs.
-- Opens with a sharp hook line that stops the scroll.
-- Uses 1 real-feeling example or number, never fake case studies or fake client names.
-- 3-6 relevant hashtags at the end (#Export #ExportBusiness #FirstExportOrder etc.).
-- Ends with a clear call to action, e.g. "Comment EXPORT" or "DM me 'FIRST ORDER'".
+Sunny Choby's writing style on LinkedIn (value first, like a practical export teacher):
+- LANGUAGE: simple, clear English only. No Hindi or Hinglish words at all. Short, everyday
+  words a new exporter anywhere can follow.
+- Teach ONE concrete export topic per post: real terms (Incoterms, THC, BAF, CHA, CFS,
+  Shipping Bill, LUT, LC, HS code...), real steps, real costs. Specific beats general.
+- Structure that works:
+    1. Hook line with a number or a surprise ("Your $500 freight became $850. Here is why.")
+    2. The breakdown: a short list, steps, or a cost split (one item per line).
+    3. One practical rule the reader can use today ("Always ask for an ALL-IN quote").
+    4. A light ending: "Save this for your next shipment" / "Share with your team", or one
+       honest question that invites comments ("Which of these surprised you?").
+- Short lines, lots of white space. A few emojis as bullets are fine, never more than 6.
+- Numbers must be realistic and labelled as examples when they are examples.
+  Never invent clients, case studies or results.
+- 3-6 relevant hashtags at the end.
+- Never promise a free PDF, list or file in return for a comment (we do not have one ready).
 """
 
 HONESTY = """
@@ -88,6 +95,10 @@ Honesty rules (must follow):
   then write it completely fresh in Sunny's own words and angle.
 - Do not mention or tag the original authors.
 """
+
+PITCH_WEEKDAY = 5  # Saturday: the only day a post mentions the paid program
+TOPICS_FILE = os.path.join(DATA, "topics.json")
+TOPIC_MEMORY_DAYS = 30
 
 PROGRAM_LINES = [
     "6-Month Hand-Hold",
@@ -187,12 +198,56 @@ def read_replies() -> list[str]:
 # ---------------------------------------------------------------------------
 # Drafting (Claude Code on the subscription)
 # ---------------------------------------------------------------------------
-def build_prompt(today: str) -> str:
+def is_pitch_day() -> bool:
+    return now().weekday() == PITCH_WEEKDAY
+
+
+def recent_topics() -> list[str]:
+    try:
+        with open(TOPICS_FILE) as f:
+            items = json.load(f)
+    except (OSError, ValueError):
+        return []
+    cutoff = (now() - timedelta(days=TOPIC_MEMORY_DAYS)).strftime("%Y-%m-%d")
+    return [t["topic"] for t in items if t.get("date", "") >= cutoff]
+
+
+def remember_topics(data: dict) -> None:
+    try:
+        with open(TOPICS_FILE) as f:
+            items = json.load(f)
+    except (OSError, ValueError):
+        items = []
+    today = now().strftime("%Y-%m-%d")
+    for slot in ("problem", "solution"):
+        card = data[slot].get("card") or {}
+        items.append({"date": today, "topic": card.get("headline") or data[slot].get("angle", "")})
+    cutoff = (now() - timedelta(days=TOPIC_MEMORY_DAYS)).strftime("%Y-%m-%d")
+    with open(TOPICS_FILE, "w") as f:
+        json.dump([t for t in items if t.get("date", "") >= cutoff], f, indent=1)
+
+
+def program_rule(pitch: bool) -> str:
+    if pitch:
+        return """TODAY IS PROGRAM DAY (once a week). POST 2 (the article) ends with a short, honest
+section about the program, after the full value. It must include these exact details:
+- 6-Month Hand-Hold
+- 2 Months Live Training + 4 Months Team Support
+- Only Live Workshops, No Recorded Videos
+End POST 2 with a soft invitation, e.g. "If you want to be guided step by step, DM me 'HAND-HOLD'."
+POST 1 stays pure value with no program mention."""
+    return """NO SELLING TODAY. Do not mention the program, workshops, coaching, DMs for services or
+any paid offer in either post. Pure value. The goal is trust: the reader should feel they
+learned something real for free."""
+
+
+def build_prompt(today: str, pitch: bool = False, avoid: list[str] | None = None) -> str:
+    avoid_text = "\n".join(f"- {t}" for t in (avoid or [])) or "- (none yet)"
     return f"""Today is {today} (India).
 
 You are the content agent for {PROFILE['name']} ({PROFILE['linkedin']}).
 Business: {PROFILE['business']}.
-Program: {PROFILE['program']}
+Program (only for the weekly program day): {PROFILE['program']}
 
 STEP 1 - RESEARCH
 Use web search to find the top 2 export-related LinkedIn posts (text, image, infographic or
@@ -201,20 +256,34 @@ buyers, IEC, documentation, pricing, payments, export mistakes). Prefer posts fr
 last 30 days and from linkedin.com. Pick the 2 best ones.
 
 STEP 2 - REPACKAGE INTO 2 DRAFTS (each one goes out with an image card)
-POST 1 (goes out at 9 AM): PHOTO POST about a PROBLEM. Pick the strongest pain point / mistake
-new exporters face from the research. Make the reader feel 'this is exactly what is happening
-to me'. Agitate the problem, hint that there is a structured way out, and mention the program
-briefly near the end. Length: 120-220 words.
+POST 1 (goes out at 9 AM): PHOTO POST about a PROBLEM, mistake or hidden cost new exporters
+face. Hook with a number or surprise, show the breakdown, give the fix in one line.
+The infographic carries most of the detail, so the text stays short: 80-180 words.
 
-POST 2 (goes out at 6 PM): ARTICLE-STYLE long post about a SOLUTION. First line is a clear
-article title. Then a short intro, then 5-7 numbered steps or points, each with a 1-2 line
-explanation, then a short conclusion and the program. Real, practical value first.
-Length: 1,800-2,600 characters in total (hard limit: LinkedIn allows 3,000).
+POST 2 (goes out at 6 PM): ARTICLE-STYLE long post that SOLVES something step by step
+(a process, a checklist, how to compare options). First line is a clear title. Short intro,
+then 5-7 numbered points with 1-2 lines each, a "Golden rule" line, and a short ending.
+Length: 1,500-2,600 characters in total (hard limit: LinkedIn allows 3,000).
 
-IMAGE CARD for each post: an original, branded design card (we never copy anyone's image).
-If a source was an image/infographic post, take only its visual idea and make it clearer.
-For each post give: "tag" (2-3 words, e.g. "EXPORT MISTAKE", "STEP-BY-STEP"),
-"headline" (max 10 words, punchy) and "points" (3-4 short points, max 8 words each).
+The two posts must be about DIFFERENT topics and must not repeat a recent topic:
+{avoid_text}
+
+{program_rule(pitch)}
+
+IMAGE CARD for each post: a data-dense export INFOGRAPHIC that teaches on its own, even
+without the text (we design it ourselves; never copy anyone's image). Choose the template
+that fits the content best:
+- "grid": 3-6 numbered boxes (mistakes, tips, comparisons). Each item: "title" (2-5 words),
+  "text" (max 14 words), "note" (max 6 words: the consequence or the fix).
+- "checklist": 6-12 ticked items (documents, steps to check). Each item: "title" (1-4
+  words), "text" (max 7 words).
+- "breakdown": 3-8 cost or share items shown as bars. Each item: "title" (1-3 words),
+  "text" (max 4 words), "amount" (a plain number used for the bar), "value" (display, e.g. "$80").
+  Add "total" (e.g. "Total: $850 (+70%)").
+Also give: "series" (e.g. "Export Costing Series", 2-4 words), "headline" (max 9 words, with
+a number or a surprise), "highlight" (1-2 words from the headline shown in orange),
+"subtitle" (max 10 words), "takeaway" (max 18 words, the one rule to remember) and "cta"
+(max 4 words, e.g. "Save this post").
 
 NAME: the name is always spelled exactly "Sunny Choby" (C-H-O-B-Y). Never "Chaubey",
 "Choubey", "Chobey" or any other spelling.
@@ -226,11 +295,6 @@ The 2 posts must not repeat the same hook or the same example.
 
 Write both drafts entirely in simple English.
 
-Each draft MUST include these exact program details (they can be on separate lines):
-- 6-Month Hand-Hold
-- 2 Months Live Training + 4 Months Team Support
-- Only Live Workshops, No Recorded Videos
-
 STEP 3 - OUTPUT
 Do not create or edit any files. Reply with ONLY one JSON object, no other text, in this shape:
 {{
@@ -239,9 +303,11 @@ Do not create or edit any files. Reply with ONLY one JSON object, no other text,
     {{"title": "short description of source post 2", "url": "https://..."}}
   ],
   "problem": {{"angle": "one line: idea taken and how you changed it", "draft": "full post text",
-              "card": {{"tag": "...", "headline": "...", "points": ["...", "...", "..."]}}}},
+              "card": {{"template": "grid|checklist|breakdown", "series": "...", "headline": "...",
+                        "highlight": "...", "subtitle": "...", "items": [{{"title": "...", "text": "...", "note": "..."}}],
+                        "takeaway": "...", "cta": "..."}}}},
   "solution": {{"angle": "one line: idea taken and how you changed it", "draft": "full article text",
-               "card": {{"tag": "...", "headline": "...", "points": ["...", "...", "..."]}}}}
+               "card": {{ ...same shape as above... }}}}
 }}
 """
 
@@ -256,7 +322,7 @@ def find_claude() -> str:
 
 def research_and_draft() -> dict:
     cmd = [
-        find_claude(), "-p", build_prompt(now().strftime("%d %B %Y")),
+        find_claude(), "-p", build_prompt(now().strftime("%d %B %Y"), is_pitch_day(), recent_topics()),
         "--output-format", "json",
         "--allowedTools", "WebSearch", "WebFetch",
         "--disallowedTools", "Bash", "Edit", "Write", "NotebookEdit",
@@ -311,13 +377,27 @@ def fix_name(text: str) -> str:
     return _WRONG_NAME.sub("Choby", text)
 
 
-def fit_length(draft: str) -> str:
+def fit_length(draft: str, pitch: bool = False) -> str:
     """Keep a post under LinkedIn's limit, cutting at a paragraph break if needed."""
     if len(draft) <= MAX_CHARS:
         return draft
-    room = MAX_CHARS - 200  # space for the program lines
+    room = MAX_CHARS - (200 if pitch else 0)  # space for the program lines
     cut = draft[:room].rfind("\n\n")
-    return ensure_program_lines(draft[: cut if cut > 0 else room].rstrip())
+    draft = draft[: cut if cut > 0 else room].rstrip()
+    return ensure_program_lines(draft) if pitch else draft
+
+
+def fix_card(card) -> dict:
+    """Apply the name fix to every text field of an image card."""
+    def walk(v):
+        if isinstance(v, str):
+            return fix_name(v)
+        if isinstance(v, list):
+            return [walk(x) for x in v]
+        if isinstance(v, dict):
+            return {k: walk(x) for k, x in v.items()}
+        return v
+    return walk(card if isinstance(card, dict) else {})
 
 
 def format_draft(slot: str, post: dict) -> str:
@@ -347,13 +427,14 @@ def format_question(data: dict) -> str:
 def cmd_draft(dry_run: bool) -> int:
     log("Drafting 2 posts with Claude Code...")
     data = research_and_draft()
+    pitch = is_pitch_day()
     posts = {}
     for slot in ("problem", "solution"):
-        draft = fit_length(ensure_program_lines(fix_name(data[slot]["draft"])))
-        card = data[slot].get("card") or {}
-        card = {"tag": fix_name(str(card.get("tag", ""))),
-                "headline": fix_name(str(card.get("headline", ""))),
-                "points": [fix_name(str(p)) for p in card.get("points", [])]}
+        draft = fix_name(data[slot]["draft"])
+        if pitch and slot == "solution":
+            draft = ensure_program_lines(draft)
+        draft = fit_length(draft, pitch and slot == "solution")
+        card = fix_card(data[slot].get("card"))
         image = os.path.join(DATA, f"{now():%Y-%m-%d}_{slot}.png")
         make_card(card, image)
         posts[slot] = {"draft": draft, "angle": data[slot].get("angle", ""), "card": card,
@@ -363,6 +444,7 @@ def cmd_draft(dry_run: bool) -> int:
              "created_at": now().isoformat(), "sources": data.get("sources", []), "posts": posts}
 
     if dry_run:
+        print(f"Program day: {'YES' if pitch else 'no'} | avoiding {len(recent_topics())} recent topics\n")
         for slot in posts:
             print(format_draft(slot, posts[slot]), "\n")
         print(format_question(state))
@@ -371,6 +453,7 @@ def cmd_draft(dry_run: bool) -> int:
     # Ignore any old replies so a stale YES can't approve today's drafts.
     read_replies()
     save_state(state)
+    remember_topics(data)
     for slot in ("problem", "solution"):
         send_photo(posts[slot]["image"], f"🖼 {SHORT[slot]} ki photo")
         send_telegram(format_draft(slot, posts[slot]))
