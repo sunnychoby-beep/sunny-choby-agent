@@ -544,8 +544,19 @@ def day_active() -> bool:
 def cmd_watch() -> int:
     """Check Telegram every 30 s while the day is active. Prints active=true/false at the end."""
     start = time.time()
+    errors = 0
     while True:
-        cmd_check(False)
+        try:
+            cmd_check(False)
+            errors = 0
+        except Exception as e:  # a network blip must not stop the day
+            errors += 1
+            log(f"Check failed ({errors}), will retry: {e}")
+            if errors == 10:
+                try:
+                    send_telegram(f"⚠️ Agent ko Telegram/LinkedIn se baar baar error aa raha hai:\n{str(e)[:500]}")
+                except Exception:
+                    pass
         if not day_active() or time.time() - start > WATCH_SECONDS:
             break
         time.sleep(POLL_SECONDS)

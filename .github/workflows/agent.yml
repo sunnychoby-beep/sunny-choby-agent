@@ -80,7 +80,7 @@ jobs:
       # GitHub often starts scheduled runs late or skips them. So while today's drafts are
       # waiting for YES, or an approved post is waiting for 9 AM / 6 PM, each run starts the next.
       - name: Keep going
-        if: steps.agent.outputs.active == 'true'
+        if: always() && steps.agent.outputs.active == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run agent.yml -R "$GITHUB_REPOSITORY" -f command=auto
